@@ -24,10 +24,12 @@ const OPS = [
 const cx = (...items) => items.filter(Boolean).join(" ");
 const maskFor = (bits) => 2 ** bits - 1;
 const unsigned = (n, bits) => ((n % 2 ** bits) + 2 ** bits) % 2 ** bits;
+const signedVal = (n, bits) => { const u = unsigned(n, bits); return u >= 2 ** (bits - 1) ? u - 2 ** bits : u; };
+const hex = (n, bits) => "0x" + unsigned(n, bits).toString(16).toUpperCase().padStart(Math.ceil(bits / 4), "0");
 const bin = (n, bits) => unsigned(n, bits).toString(2).padStart(bits, "0");
 const groupBin = (s) => s.replace(/(.{4})(?=.)/g, "$1 ");
 
-function BitRow({ value, bits, label, accent = "cyan", active = [], dim = [], signedLabel }) {
+function BitRow({ value, bits, label, accent = "cyan", active = [], signedLabel }) {
   const colors = {
     cyan: "border-cyan-400/55 bg-cyan-400/10 text-cyan-100 shadow-cyan-500/10",
     violet: "border-violet-400/55 bg-violet-400/10 text-violet-100 shadow-violet-500/10",
@@ -41,14 +43,14 @@ function BitRow({ value, bits, label, accent = "cyan", active = [], dim = [], si
     <div className="space-y-2">
       <div className="flex items-end justify-between gap-3 text-xs">
         <div className="font-semibold tracking-wide text-slate-300">{label}</div>
-        <div className="font-mono text-slate-500">{signedLabel ?? `十進位 ${value}`}</div>
+        <div className="font-mono text-slate-500">{signedLabel ?? `十進位 ${unsigned(value, bits)} · ${hex(value, bits)}`}</div>
       </div>
-      <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${bits}, minmax(0, 1fr))` }}>
+      <div className="grid gap-1.5 overflow-x-auto pb-4" style={{ gridTemplateColumns: `repeat(${bits}, minmax(1.75rem, 1fr))` }}>
         {chars.map((c, i) => (
           <motion.div
             key={`${i}-${c}`}
             initial={{ scale: 0.88, opacity: 0.55 }}
-            animate={{ scale: active.includes(i) ? 1.08 : 1, opacity: dim.includes(i) ? 0.35 : 1 }}
+            animate={{ scale: active.includes(i) ? 1.08 : 1 }}
             className={cx(
               "relative flex aspect-square min-h-8 items-center justify-center rounded-lg border font-mono text-sm font-bold shadow-lg sm:min-h-10 sm:text-base",
               colors[accent],
@@ -69,7 +71,7 @@ function CarryRow({ carries, bits }) {
   return (
     <div>
       <div className="mb-1 text-[10px] font-semibold uppercase tracking-[.18em] text-rose-300">Carry 進位訊號 ←</div>
-      <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${bits}, minmax(0, 1fr))` }}>
+      <div className="grid gap-1.5 overflow-x-auto" style={{ gridTemplateColumns: `repeat(${bits}, minmax(1.75rem, 1fr))` }}>
         {shown.map((c, i) => (
           <motion.div
             key={`${i}-${c}`}
@@ -82,12 +84,43 @@ function CarryRow({ carries, bits }) {
   );
 }
 
+function FlagsRow({ A, B, bits }) {
+  const sum = A + B;
+  const u = unsigned(sum, bits);
+  const msb = (x) => (unsigned(x, bits) >> (bits - 1)) & 1;
+  const flags = [
+    { k: "C", v: sum > maskFor(bits) ? 1 : 0, tip: "Carry：最高位進位＝無號溢位" },
+    { k: "V", v: msb(A) === msb(B) && msb(sum) !== msb(A) ? 1 : 0, tip: "oVerflow：有號溢位（兩同號相加變號）" },
+    { k: "Z", v: u === 0 ? 1 : 0, tip: "Zero：結果為 0" },
+    { k: "N", v: msb(sum), tip: "Negative：最高位為 1（有號解讀為負）" },
+  ];
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
+      <div className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-500">Status flags 狀態旗標</div>
+      <div className="grid gap-2 sm:grid-cols-4">
+        {flags.map(({ k, v, tip }) => (
+          <div key={k} className={cx("rounded-xl border p-2.5 text-center", v ? "border-rose-400/40 bg-rose-400/10" : "border-slate-800 bg-slate-900/60")}>
+            <div className={cx("font-mono text-lg font-black", v ? "text-rose-200" : "text-slate-600")}>{k} = {v}</div>
+            <div className="mt-1 text-[10px] leading-4 text-slate-500">{tip}</div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-xs leading-5 text-slate-500">C 與 V 是兩件事：C 看「無號」是否超過 {maskFor(bits)}，V 看「有號」是否超出 {-(2 ** (bits - 1))}～{2 ** (bits - 1) - 1}。試試 200 + 100 觀察兩者差異。</p>
+    </div>
+  );
+}
+
 function SliderField({ label, value, setValue, max, disabled = false }) {
+  const clamp = (n) => Math.max(0, Math.min(max, Math.floor(Number(n) || 0)));
   return (
     <label className={cx("block rounded-2xl border border-slate-800 bg-slate-950/45 p-4", disabled && "opacity-50")}>
       <div className="mb-3 flex items-center justify-between">
         <span className="text-sm font-medium text-slate-300">{label}</span>
-        <span className="rounded-lg bg-slate-800 px-3 py-1 font-mono text-lg font-bold text-white">{value}</span>
+        <input
+          type="number" min="0" max={max} value={value} disabled={disabled}
+          onChange={(e) => setValue(clamp(e.target.value))}
+          className="w-24 rounded-lg bg-slate-800 px-3 py-1 text-right font-mono text-lg font-bold text-white outline-none focus:ring-2 focus:ring-cyan-400"
+        />
       </div>
       <input
         type="range" min="0" max={max} value={value} disabled={disabled}
@@ -115,14 +148,26 @@ function explainAdd(A, B, bits) {
   return steps;
 }
 
-function twosSteps(B, bits) {
-  return [
-    { title: "載入 A 與 B", text: "減法器不必是獨立電路：接下來把 B 轉為二補數，再交給同一個加法器。", stage: 0 },
-    { title: "步驟 1：逐位反相", text: `B = ${bin(B,bits)}，每個 0、1 互換，得到 ${bin((~B) & maskFor(bits),bits)}。`, stage: 1 },
-    { title: "步驟 2：末位加 1", text: `反相結果再加 1，得到 −B 的 ${bits} 位元二補數 ${bin((-B) & maskFor(bits),bits)}。`, stage: 2 },
-    { title: "步驟 3：交給加法器", text: `計算 A + (−B)。超出最左側的進位直接捨棄，留下固定 ${bits} 位元結果。`, stage: 3 },
-    { title: "減法完成", text: "同一組加法電路完成了減法。最高位為 1 時，可把結果解讀為二補數負數。", stage: 4 },
+function twosSteps(A, B, bits) {
+  const negB = unsigned(-B, bits);
+  const steps = [
+    { title: "載入 A 與 B", text: "減法器不必是獨立電路：接下來把 B 轉為二補數，再交給同一個加法器。這正是二補數的第一個好處——減法可以共用加法硬體。", stage: 0, col: -1, carries: [] },
+    { title: "步驟 1：逐位反相", text: `B = ${bin(B,bits)}，每個 0、1 互換，得到 ${bin((~B) & maskFor(bits),bits)}。`, stage: 1, col: -1, carries: [] },
+    { title: "步驟 2：末位加 1", text: `反相結果再加 1，得到 −B 的 ${bits} 位元二補數 ${bin(negB,bits)}。（若用「一補數」只反相不加 1，會出現 +0 與 −0 兩種零；二補數的零唯一，這是它的第二個好處。）`, stage: 2, col: -1, carries: [] },
+    { title: "步驟 3：交給加法器", text: `接下來用同一組全加器逐位計算 A + (−B)，符號位和其他位元一視同仁地參與運算。`, stage: 3, col: -1, carries: [] },
   ];
+  let carry = 0;
+  const carries = Array(bits).fill("");
+  for (let k = 0; k < bits; k++) {
+    const ai = (A >> k) & 1, bi = (negB >> k) & 1;
+    const before = carry;
+    const sum = ai + bi + carry;
+    carry = sum >= 2 ? 1 : 0;
+    if (k + 1 < bits) carries[bits - 2 - k] = carry;
+    steps.push({ title: `第 ${k + 1} 位：全加器運算`, text: `${ai} + ${bi} + 進位 ${before} = ${sum}，寫入 ${sum & 1}${carry ? "，並向左送出進位 1" : "，不產生進位"}。`, stage: 3, col: bits - 1 - k, carries: [...carries] });
+  }
+  steps.push({ title: "減法完成", text: `${carry ? "超出最左側的進位 1 直接捨棄，" : ""}同一組加法電路完成了減法。同一組位元有兩種讀法：無號 ${unsigned(A - B, bits)}，有號（二補數）${signedVal(A - B, bits)}；${bits}-bit 有號範圍是 ${-(2 ** (bits - 1))}～${2 ** (bits - 1) - 1}。`, stage: 4, col: -1, carries: [...carries] });
+  return steps;
 }
 
 function mulSteps(A, B, bits) {
@@ -160,6 +205,7 @@ export default function App() {
   const [B, setB] = useState(6);
   const [step, setStep] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(1);
 
   const max = maskFor(bits);
   useEffect(() => { setA((x) => Math.min(x, max)); setB((x) => Math.min(x, max)); setStep(0); setPlaying(false); }, [bits, max]);
@@ -167,7 +213,7 @@ export default function App() {
 
   const steps = useMemo(() => {
     if (op === "add") return explainAdd(A, B, bits);
-    if (op === "sub") return twosSteps(B, bits);
+    if (op === "sub") return twosSteps(A, B, bits);
     if (op === "mul") return mulSteps(A, B, bits);
     return divSteps(A, B, bits);
   }, [op, A, B, bits]);
@@ -175,14 +221,12 @@ export default function App() {
   useEffect(() => {
     if (!playing) return;
     if (step >= steps.length - 1) { setPlaying(false); return; }
-    const t = setTimeout(() => setStep((s) => s + 1), 1050);
+    const t = setTimeout(() => setStep((s) => s + 1), 1050 / speed);
     return () => clearTimeout(t);
-  }, [playing, step, steps.length]);
+  }, [playing, step, steps.length, speed]);
 
   const current = steps[Math.min(step, steps.length - 1)];
   const result = op === "add" ? A + B : op === "sub" ? A - B : op === "mul" ? A * B : B ? Math.floor(A / B) : null;
-  const resultBits = op === "mul" ? bits * 2 : bits;
-  const accent = OPS.find((x) => x.id === op)?.color || "cyan";
 
   const reset = () => { setA(13); setB(6); setStep(0); setPlaying(false); };
   const next = () => setStep((s) => Math.min(s + 1, steps.length - 1));
@@ -217,12 +261,13 @@ export default function App() {
               <div className="mt-4 rounded-2xl border border-cyan-400/15 bg-cyan-400/[.06] p-4">
                 <div className="text-xs text-slate-500">人類看到的算式</div>
                 <div className="mt-1 font-mono text-2xl font-black text-white">{A} {OPS.find(x=>x.id===op)?.symbol} {B} = {result === null ? "錯誤" : op === "div" && B ? `${result} … ${A % B}` : result}</div>
+                <div className="mt-1 font-mono text-xs text-slate-500">{hex(A,bits)} {OPS.find(x=>x.id===op)?.symbol} {hex(B,bits)}{result !== null && ` = ${hex(result, op==="mul"?bits*2:bits)}`}</div>
               </div>
             </section>
 
             <section className="rounded-3xl border border-slate-800 bg-slate-900/55 p-5">
               <div className="mb-3 flex items-center gap-2 text-sm font-bold text-amber-200"><Lightbulb className="h-4 w-4" />這一頁要看什麼？</div>
-              <p className="text-sm leading-6 text-slate-400">{op === "add" ? "觀察進位如何從右向左，像骨牌般傳入下一個全加器。" : op === "sub" ? "觀察 B 如何經過反相、加 1，變成可直接相加的 −B。" : op === "mul" ? "觀察乘數的每個 1，如何產生左移並對齊的部分積。" : "觀察餘數如何左移、試減除數，再逐位決定商是 0 或 1。"}</p>
+              <p className="text-sm leading-6 text-slate-400">{op === "add" ? "觀察進位如何從右向左，像骨牌般傳入下一個全加器；並留意 C（無號溢位）與 V（有號溢位）是兩個不同的旗標。" : op === "sub" ? "觀察 B 如何經過反相、加 1 變成 −B，再由同一個加法器逐位算出 A + (−B)——減法其實是加法。" : op === "mul" ? "觀察乘數的每個 1，如何產生左移並對齊的部分積。" : "觀察餘數如何左移、試減除數，再逐位決定商是 0 或 1。"}</p>
             </section>
           </aside>
 
@@ -234,6 +279,7 @@ export default function App() {
                   <button onClick={prev} disabled={step===0} className="rounded-xl border border-slate-700 p-2.5 text-slate-300 disabled:opacity-25 hover:bg-slate-800"><ChevronLeft className="h-4 w-4" /></button>
                   <button onClick={() => { if(step === steps.length-1) setStep(0); setPlaying(x=>!x); }} className="flex min-w-28 items-center justify-center gap-2 rounded-xl bg-cyan-400 px-4 py-2.5 text-sm font-black text-slate-950 hover:bg-cyan-300">{playing ? <Pause className="h-4 w-4"/> : <Play className="h-4 w-4"/>}{playing ? "暫停" : step===steps.length-1 ? "重播" : "自動播放"}</button>
                   <button onClick={next} disabled={step===steps.length-1} className="rounded-xl border border-slate-700 p-2.5 text-slate-300 disabled:opacity-25 hover:bg-slate-800"><ChevronRight className="h-4 w-4" /></button>
+                  <button onClick={() => setSpeed((s) => (s === 1 ? 2 : s === 2 ? 4 : 1))} className="rounded-xl border border-slate-700 px-3 py-2.5 font-mono text-xs font-bold text-slate-300 hover:bg-slate-800" title="播放速度">{speed}x</button>
                 </div>
               </div>
               <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-slate-800"><motion.div className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-violet-400" animate={{ width: `${((step+1)/steps.length)*100}%` }} /></div>
@@ -248,15 +294,18 @@ export default function App() {
                   {current.carries && <CarryRow carries={current.carries} bits={bits}/>}
                   <BitRow value={A} bits={bits} label="暫存器 A（被加數）" accent="cyan" active={current.col>=0?[current.col]:[]} />
                   <BitRow value={B} bits={bits} label="暫存器 B（加數）" accent="violet" active={current.col>=0?[current.col]:[]} />
-                  <div className="border-t border-dashed border-slate-700 pt-5"><BitRow value={A+B} bits={bits} label="SUM 結果暫存器" accent="emerald" active={current.col>=0?[current.col]:[]} signedLabel={`十進位 ${unsigned(A+B,bits)}${A+B>max?" · Overflow=1":""}`} /></div>
+                  <div className="border-t border-dashed border-slate-700 pt-5"><BitRow value={A+B} bits={bits} label="SUM 結果暫存器" accent="emerald" active={current.col>=0?[current.col]:[]} signedLabel={`無號 ${unsigned(A+B,bits)} · 有號 ${signedVal(A+B,bits)} · ${hex(A+B,bits)}`} /></div>
+                  <FlagsRow A={A} B={B} bits={bits} />
                 </>}
 
                 {op === "sub" && <>
-                  <BitRow value={A} bits={bits} label="暫存器 A" accent="cyan" />
+                  {current.stage>=3 && <CarryRow carries={current.carries} bits={bits}/>}
+                  <BitRow value={A} bits={bits} label="暫存器 A" accent="cyan" active={current.col>=0?[current.col]:[]} />
                   <BitRow value={B} bits={bits} label="原始 B" accent={current.stage>=1?"slate":"violet"} />
-                  {current.stage>=1 && <BitRow value={(~B)&max} bits={bits} label="NOT B（逐位反相）" accent={current.stage===1?"violet":"slate"} />}
-                  {current.stage>=2 && <BitRow value={(-B)&max} bits={bits} label="二補數 −B（反相加 1）" accent={current.stage<=2?"amber":"violet"} />}
-                  {current.stage>=3 && <div className="border-t border-dashed border-slate-700 pt-5"><BitRow value={A-B} bits={bits} label="A + (−B) 結果" accent="emerald" signedLabel={`二補數解讀：${A-B}`} /></div>}
+                  {current.stage>=1 && current.stage<3 && <BitRow value={(~B)&max} bits={bits} label="NOT B（逐位反相）" accent={current.stage===1?"violet":"slate"} />}
+                  {current.stage>=2 && <BitRow value={(-B)&max} bits={bits} label="二補數 −B（反相加 1）" accent={current.stage===2?"amber":"violet"} active={current.col>=0?[current.col]:[]} />}
+                  {current.stage>=3 && <div className="border-t border-dashed border-slate-700 pt-5"><BitRow value={A-B} bits={bits} label="A + (−B) 結果" accent="emerald" active={current.col>=0?[current.col]:[]} signedLabel={`無號 ${unsigned(A-B,bits)} · 有號 ${signedVal(A-B,bits)} · ${hex(A-B,bits)}`} /></div>}
+                  {current.stage>=4 && <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/[.06] p-4 text-sm leading-6 text-slate-400"><span className="font-bold text-cyan-200">為什麼用二補數？</span>①減法共用同一個加法器，不必另做減法電路；②零的表示唯一（一補數會有 +0/−0）；③符號位可直接參與運算，不需特殊處理。同一組位元的解讀由程式決定：無號 0～{max}，有號 {-(2**(bits-1))}～{2**(bits-1)-1}。</div>}
                 </>}
 
                 {op === "mul" && <>
@@ -268,7 +317,8 @@ export default function App() {
                       {Array.from({length: bits},(_,k)=>{ const part=((B>>k)&1)?A<<k:0; return <div key={k} className={cx("flex items-center justify-between rounded-lg px-3 py-1.5 transition", current.shift===k?"bg-amber-400/15 text-amber-100":"text-slate-600")}><span>B[{k}] = {(B>>k)&1}</span><span>{groupBin(bin(part,bits*2))}</span></div> })}
                     </div>
                   </div>
-                  <BitRow value={current.acc??0} bits={bits*2} label="累加器 ACC" accent="emerald" signedLabel={`目前累加：${current.acc??0}`} />
+                  <BitRow value={current.acc??0} bits={bits*2} label="累加器 ACC" accent="emerald" signedLabel={`目前累加：${current.acc??0} · ${hex(current.acc??0,bits*2)}`} />
+                  <p className="text-xs leading-5 text-slate-500">積暫存器需要 {bits*2} 位：兩個 {bits} 位數相乘最大可達 {max} × {max} = {max*max}。本頁的「移位—相加」是教學模型；真實 CPU 多用 Booth 編碼或 Wallace tree 在更少的時脈內完成。</p>
                 </>}
 
                 {op === "div" && <>
